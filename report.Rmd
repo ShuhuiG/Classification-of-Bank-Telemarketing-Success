@@ -1,0 +1,615 @@
+---
+title: \LARGE{Classification to Predict Bank Telemarketing Success}
+author: "Shuhui Guo"
+fontsize: 12pt
+header-includes:
+   - \usepackage{multirow}
+output: 
+ pdf_document:
+   toc: true
+   toc_depth: 3
+   number_sections: false
+   highlight: "pygments"
+---
+\newpage
+# 1 Introduction
+
+Marketing campaigns become popular strategies for banks to improve their business performance. The campaigns are based on phone calls. Companies contact to clients directly to introduce their products like the bank term deposit. In the contemporary world, the phone calls could be made in several ways, such as telephone and cellular. Usually more than one calls need to be used to contact clients to access if the product would be subscribed. To avoid inefficient work unnecessary disturbance, figuring out how to identify the clients' willingness to subscribe the product is becoming important in telemarketing.
+
+In this study, three machine learning algoriths on a marketing dataset are implemented to find the relationships between multiple attributes and the final outcome. Then the predictions could be made. Therefore, the companies could develop strategies and target those who have suitable needs to subscribe the products. Hopefully this study will give some suggestions to this field.
+
+# 2 Data
+
+## 2.1 Data Source
+
+Data analysis in this report is based on the dataset \textbf{bank-additional-full.csv} on UCI Machine Learning Repository. This dataset is related with marketing campaigns of a Portuguese banking institution. The data contains all samples(41188) and 20 input variables from May 2008 to November 2010. The goal is to predict if the client will subscribe (yes/no) a term deposit (variable y).
+
+```{r, echo = F}
+bank <- read.csv2("C:/Users/guoshuhui/Desktop/OA/bank-additional/bank-additional-full.csv", header=TRUE, sep=";")
+
+# convert the change the factor values to numeric
+bank$age <- as.numeric(bank$age)
+bank$duration <- as.numeric(bank$duration)
+bank$campaign <- as.numeric(bank$campaign)
+bank$pdays <- as.numeric(bank$pdays)
+bank$previous <- as.numeric(bank$previous)
+bank$emp.var.rate <- as.numeric(as.character(bank$emp.var.rate))
+bank$cons.price.idx <- as.numeric(as.character(bank$cons.price.idx))
+bank$cons.conf.idx <- as.numeric(as.character(bank$cons.conf.idx))
+bank$euribor3m <- as.numeric(as.character(bank$euribor3m))
+bank$nr.employed <- round(as.numeric(as.character(bank$nr.employed)))
+```
+
+## 2.2 Data Preparation and Description
+
+Since there appear to be no missing values, the total number of observations is 41188. For the input variables, there are 10 numerical variables and 10 categorical variables. For model fitting and realistic prediction, the input variable \textbf{duration} should be discarded because it highly affects the outcome. Also, the input variale \textbf{nr.employed} is rounded because the observations in this variable should be integers while there exists decimals in the data. Finally, the dataset used for analysis includes 41188 observations, 19 input variables and 1 output variable.
+
+The input variables are shown as below:
+
+```{r, echo = F, include = F}
+library(knitr)
+library(kableExtra)
+library(caret)
+library(glmnet)
+library(dplyr)
+library(ROCR)
+```
+
+\newpage
+\begin{table}[ht]
+\begin{tabular}{lllp{4in}l}
+\hline
+& variable & data type & explanation \\
+\hline
+\multicolumn{3}{l}{bank client data:} \\
+\hline
+1 & age & numerical & Age at the contact date \\
+2 & job & categorical & job type \\
+3 & marital & categorical & marital status \\
+4 & education & categorical & education level \\
+5 & default & categorical & has credit in default? \\
+6 & housing & categorical & has housing loan? \\
+7 & loan & categorical & has personal loan? \\
+\hline
+\multicolumn{3}{l}{the last contact of current campaign:} \\
+\hline
+8 & contact & categorical & contact communication type \\
+9 & month & categorical & last contact month of year \\
+10 & day of week & categorical & last contact day of the week \\
+\hline
+\multicolumn{3}{l}{other attributes:} \\
+\hline
+11 & campaign & numerical & number of contacts performed in this campaign and for this client \\
+12 & pdays & numerical & number of days passed by after the client was last contacted in a previous campaign \\
+13 & previous & numerical & number of contacts performed before this campaign and for this client \\
+14 & poutcome & catagorical & outcome of the previous marketing campaign \\
+\hline
+\multicolumn{3}{l}{social and economic attributes:} \\
+\hline
+15 & emp.var.rate & numerical & employment variation rate - quarterly indicator \\
+16 & cons.price.idx & numerical & consumer price index - monthly indicator \\
+17 & cons.conf.idx & numerical & consumer confidence index - monthly indicator \\
+18 & euribor3m & numerical & euribor 3 month rate - daily indicator \\
+19 & nr.employed & numerical & number of employees - quarterly indicator \\
+\hline
+\end{tabular}
+\end{table}
+
+To get an understanding of the data, the distributions of outcomes by \textbf{job} and \textbf{age} are visualized as below.
+
+```{r, echo = F, fig.align = 'center', fig.height=3.8, fig.width=5.0}
+barplot(table(bank$job),col="light blue",ylab="No. of Clients",las=2,main="job",cex.names = 0.8,cex.axis = 0.8)
+```
+
+```{r, echo = F, fig.align = 'center', fig.height=3.8, fig.width=5.0}
+hist(bank$age, col = "light blue",xlab="age of clients", freq = FALSE, main="age", cex.axis = 0.8)
+```
+
+# 3 Modeling
+
+To build models, I first divide data into training and testing datasets. 75% of the observations are splitted into the training dataset and the remaining 25% are splitted into the testing dataset.
+
+Then I will try Logistic Regression, Classification Tree and Gradient Boosted Machine to create models and do prediction.
+
+```{r, echo = F, cache = T}
+#set random seed for the results to be reproducible
+set.seed(123) 
+# sample 75% of observations as the training set
+trainX <- createDataPartition(bank$y, p=0.75, list=FALSE) 
+train <- bank[trainX,]
+# the rest 25% as the test set
+test <- bank[-trainX,]
+```
+
+## 3.1 Logistic Regression
+
+In this case, there are two possible outcomes, *Yes* and *No*. Denoting the probability of these two outcomes as $P(Y)$ and $P(N)$ respectively, the probability of *Yes* could be written as $P(Y)=p$, and the probability of *No* could be written as $P(N)=1-p$. Thus, the odds of the *Yes* outcome, which is the ratio of the probability of *Yes* to the probability of *No*, is given by the following expression:
+
+\begin{align*}
+Odds(Y)=\frac{p}{1-p}
+\end{align*}
+
+The logit function can be written as:
+
+\begin{align*}
+logit(p)=log(\frac{p}{1-p}) \quad where\quad 0\leq p\leq 1
+\end{align*}
+
+The logistic function is the inverse of the logit function. The logistic function is defined for a parameter $\alpha$ by the following expression:
+
+\begin{align*}
+logistic(\alpha)=\frac{1}{1+exp(-\alpha)}
+\end{align*}
+
+In the regression model, the logistic function is applied to the dependent variable to make binary classification prediction. Thus, if we have the following model:
+
+\begin{align*}
+y=mx+b
+\end{align*}
+
+the logistic regression model could be expressed as:
+
+\begin{align*}
+logistic(y)=\frac{1}{1+exp(-y)}
+\end{align*}
+
+### 3.1.1 Logistic Regression Model Fitting
+
+Fit the above logistic regression model to the training data, and the coefficients are obtained. In the results, all other coefficients performs normally but the variable \textbf{loan-unknown}. NA is introduced in the results of \textbf{loan-unknown} so that this variale becomes meaningless in model fitting. To address this problem, the colinearity is checked by testing the significance of associations between \textbf{loan} and other variables. The conclusion is that the variable \textbf{loan} and the variable \textbf{housing} is highly correlated. Also, after checking the data, there appears that the observations whose $loan="unknown"$ are the same as the ones with $housing="unkown"$. Logistic regression model cannot solve this problem. Instead, it will just discard the variable \textbf{loan-unknown} while doing prediction. Therefore, there should be some improvements in the model fitting.
+
+### 3.1.2 Logistic Regression with Lasso Penalty
+
+The lasso penalty could be written as:
+
+\begin{align*}
+\hat{\beta}=\text{arg min}_{\beta}\frac{1}{2}||y-X\beta||^2+\lambda||\beta||_1
+\end{align*}
+
+where $\lambda$ is the penalty level which could be selected by cross-validation.
+
+With this method, the varaibles used for prediction are selected more precisely thus the problem of colinearity could be solved.
+
+The selected variables and corresponding coeffitients are as below:
+
+|variable|coefficient|variable|coefficient|
+|--------|-----------|--------|-----------|
+|Intercept|44.932|job-retired|0.219|
+|job-student|0.238|education-university.degree|0.067|
+|default-unknown|-0.094|contact-telephone|-0.198|
+|month-jul|0.033|month-mar|0.736|
+|month-may|-0.662|month-nov|-0.122|
+|day_of_week-mon|-0.170|day_of_week-wed|0.011|
+|campaign|-0.008|pdays|-0.001|
+|poutcome-nonexistent|0.193|poutcome-success|0.692|
+|emp.var.rate|-0.071|cons.conf.idx|0.005|
+|nr.employed|-0.009|||
+
+Take the variables \textbf{day of week-mon} and \textbf{poutcom-success} as example. For every one unit change in \textbf{day of week-mon} (Monday is the last contact day), the log odds of subscribing to a long-term deposit decreases by 0.170. This might be because the clients contacted in Monday have just returned to work or study, they have less consideration on subscribing to a deposit. For every one unit change in \textbf{poutcome-success} (successful outcome of previous marketing campaign), the log odds of subscribing increases by 0.692. This might be because a successful outcome in previous campaign is more likely to lead to success in the current campaign.
+
+```{r, echo = F, cache = T}
+y_train <- train[,21]
+y_test <- test[,21]
+X_train <- train[,-21]
+X_test <- test[,-21]
+Xdummy_train <- model.matrix(~ .-1, X_train)
+Xdummy_test <- model.matrix(~ .-1, X_test)
+y_train <- as.numeric(as.character(factor(y_train, levels = c("no", "yes"), labels = c("0", "1"))))
+y_test <- as.numeric(as.character(factor(y_test, levels = c("no", "yes"), labels = c("0", "1"))))
+m1.cv <- cv.glmnet(Xdummy_train[,-44], as.factor(y_train), family="binomial", alpha = 1, nfolds=10)
+#lambda_use <- m1.cv$lambda.min
+model <- m1.cv
+```
+
+Set the threshold as 0.5. The prediction probabilities higher than 0.5 should be classified to *Yes*, and the probabilities lower than 0.5 should be classified to *No*.
+
+The confusion matrix of the training dataset is constructed as below:
+
+```{r, echo = F, cache = T}
+prob1 <- predict(model, Xdummy_train[,-44], type = "response")
+prob <- predict(model, Xdummy_test[,-44], type = "response")
+train = train %>%
+  mutate(predy = as.factor(ifelse(prob1 < 0.5, "no", "yes")))
+# confusion matrix
+table(pred = train$predy, true = train$y)
+```
+
+Based on this result, out of 30891 observations in total, the model classifies 27813 correctly, which is 0.900. This result seems to be impressed. Nevertheless, the classification accuracy of each outcome is quite different. Out of the 27411 observations which did not subscribe to a deposit, the model classifies 27103 correctly, which is 0.989. On the other hand, out of the 3480 observations which subscribed to a deposit, the model classifies 710 correctly, which is only 0.204.
+
+Use the trained model to make prediction in testing dataset. The confusion matrix of the testing dataset is:
+
+```{r, echo = F, cache = T}
+test = test %>%
+  mutate(predy = as.factor(ifelse(prob < 0.5, "no", "yes")))
+# confusion matrix
+table(pred = test$predy, true = test$y)
+```
+
+Based on this result, the total classification accuracy is 0.898. But the unbalanced issue also exists. The classification accuracy of the observations which did not actually subscribe to a deposit is 0.987. While the classification accuracy of the observations which actually subscribed to a deposit is 0.194.
+
+### 3.1.3 Model Improvement
+
+In this part, the unbalanced issue will be addressed by checking ROC curve and finding the best threshold to do classification.
+
+The ROC curve of training dataset is plotted as below:
+
+```{r, echo = F, fig.align = 'center', fig.height=3.8, fig.width=5.0}
+pred = prediction(prob1, train$y)
+#TPR on the y axis and FPR on the x axis
+perf = performance(pred, measure="tpr", x.measure="fpr")
+plot(perf, col=2, lwd=3, main="ROC curve")
+abline(0,1)
+auc <- performance(pred, "auc")@y.values
+```
+
+The area under the curve (AUC) is used to summarize the performance of the model, and it is currently about $`r round(as.numeric(auc),3)`$. This value is pretty high, which indicates that the model has a good performance. Nevertheless, based on the ROC curve, the performance of the model could be better. The highest true positive rate in ROC curve is more than 0.900. While the true positive rate in current result is 0.204, which is much lower. 
+
+To make the classification results better, the false positive rate(fpr) and false negative rate(fnr) should be as small as possible. This could be achieved by changing the threshold, which is currently 0.5.
+
+The changes of false positive rate and false negative rate with the changing of threshold is plotted as below:
+
+```{r, echo = F, fig.align = 'center', fig.height=3.8, fig.width=5.0}
+# change the threshold
+# FPR
+fpr = performance(pred, "fpr")@y.values[[1]]
+cutoff = performance(pred, "fpr")@x.values[[1]]
+# FNR
+fnr = performance(pred,"fnr")@y.values[[1]]
+
+#plot the FPR and FNR versus threshold value
+matplot(cutoff, cbind(fpr,fnr), type="l",lwd=2, xlab="Threshold",ylab="Error Rate")
+legend("right", 0.4, legend=c("False Positive Rate","False Negative Rate"),
+       col=c(1,2), lty=c(1,2))
+```
+
+To ensure the false positive rate(fpr) and false negative rate(fnr) are as small as possible, there should be a threshold in which the distance between (fpr,fnr) and (0,0) is the smallest. The Euclidean distance is used to measure this distance.
+
+\begin{align*}
+d=\sqrt{fpr^2+fnr^2}
+\end{align*}
+
+Finally the smallest distance is selected to be 0.391. The corresponding threshold is 0.094. The results are shown in the plot:
+
+```{r, echo = F, fig.align = 'center', fig.height=3.8, fig.width=5.0}
+# calculate the euclidean distance between (fpr,fnr) and (0,0)
+rate = as.data.frame(cbind(Cutoff=cutoff, FPR=fpr, FNR=fnr))
+rate$distance = sqrt((rate[,2])^2+(rate[,3])^2)
+
+# select the probability threshold with the smallest euclidean distance
+index = which.min(rate$distance)
+best = rate$Cutoff[index]
+matplot(cutoff, cbind(fpr,fnr), type="l",lwd=2, xlab="Threshold",ylab="Error Rate")
+legend("right", 0.4, legend=c("False Positive Rate","False Negative Rate"),
+       col=c(1,2), lty=c(1,2))
+abline(v=best, col=3, lty=3, lwd=3)
+```
+
+Based on the above inference, the prediction probabilities higher than 0.094 should be classified to *Yes*, and the probabilities lower than 0.094 should be classified to *No*. 
+
+The new confusion matrix of the training dataset is constructed as below:
+
+```{r, echo = F, cache = T}
+#calculate subscription probabilities again with threshold value
+new.train = train %>%
+  mutate(predy = as.factor(ifelse(prob1 <= best, "no", "yes")))
+# confusion matrix
+table(pred = new.train$predy, true = train$y)
+```
+
+Out of 30891 observations in total, the model classifies 23600 correctly, which is 0.764. This result is lower than before, but the classification accuracy of each outcome should also be checked. Out of the 27411 observations which did not subscribe to a deposit, the model classifies 21234 correctly, which is 0.775. On the other hand, out of the 3480 observations which subscribed to a deposit, the model classifies 2366 correctly, which is 0.680. The true positive rate is increased a lot and the overall model is much more accurate than before.
+
+Use the trained model to make prediction in testing dataset. The confusion matrix of the testing dataset is:
+
+```{r, echo = F, cache = T}
+new.test = test %>%
+  mutate(predy = as.factor(ifelse(prob <= best, "no", "yes")))
+table(pred = new.test$predy, true = test$y)
+```
+
+The total classification accuracy of testing data is 0.757. The classification accuracy of the observations which did not actually subscribe to a deposit is 0.765. While the classification accuracy of the observations which actually subscribed to a deposit is 0.695.
+
+## 3.2 Classification Tree
+
+```{r, echo = F}
+rm(list=ls())
+```
+
+```{r, echo = F, include = F}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+```
+
+Classification tree is a flexible model to handle both categorical and continuous variables in a natural way. Also, it is robust to outliers. So in this part, the classification tree will be used to predict if the client will subscribe a deposit. Nevertheless, there is a tree size issue existing in the model fitting. A large tree (with many splits) can easily overfit the data. A small tree may not capture important structures. So to fit the model, the best size of tree should be decided.
+
+### 3.2.1 Tree Size Selection
+
+First fit the entire tree $T_{max}$. Then prune it to a sub-tree of $T_{max}$ , denote as $T\preceq T_{max}$, which minimizes
+
+\begin{align*}
+C_\alpha (T)&=\sum_{all terminal nodes t in T} N_t \cdot Impurity(t)+\alpha \mid T \mid \\
+&=C(T)+\alpha \mid T \mid
+\end{align*}
+
+where $N_t$ is the number of observations in $t$, $\mid T \mid$ is the the number of terminal nodes of $T$, $\alpha$ is the complexity parameter chosen by cross-validation in the following steps:
+
+Step1. Split the data randomly into 10 folds. Use 10-fold cross-validation and fits each sub-tree $T_1, ..., T_m$ on each training fold.
+
+Step2. Calculate the corresponding misclassification risk $R_m$ for each sub-tree and select the complexity parameter $\alpha$ giving the lowest misclassification risk.
+
+The changes of misclasification risk with changes of $\alpha$ is:
+
+```{r, echo = F}
+bank <- read.csv2("C:/Users/guoshuhui/Desktop/OA/bank-additional/bank-additional-full.csv", header=TRUE, sep=";")
+bank <- bank[,-11]
+# convert the change the factor values to numeric
+bank$age <- as.numeric(bank$age)
+# bank$duration <- as.numeric(bank$duration)
+bank$campaign <- as.numeric(bank$campaign)
+bank$pdays <- as.numeric(bank$pdays)
+bank$previous <- as.numeric(bank$previous)
+bank$emp.var.rate <- as.numeric(as.character(bank$emp.var.rate))
+bank$cons.price.idx <- as.numeric(as.character(bank$cons.price.idx))
+bank$cons.conf.idx <- as.numeric(as.character(bank$cons.conf.idx))
+bank$euribor3m <- as.numeric(as.character(bank$euribor3m))
+bank$nr.employed <- round(as.numeric(as.character(bank$nr.employed)))
+#set random seed for the results to be reproducible
+set.seed(123) 
+# sample 75% of observations as the training set
+trainX <- createDataPartition(bank$y, p=0.75, list=FALSE) 
+train <- bank[trainX,]
+# the rest 25% as the test set
+test <- bank[-trainX,]
+```
+
+```{r, echo = F, fig.align = 'center', fig.height=3.8, fig.width=5.0}
+bank.rpart <- rpart(y ~ ., data = train,method="class", control = rpart.control(xval = 10, cp = 0.001))
+plotcp(bank.rpart)
+```
+
+Based on the above result, the complexity parameter $\alpha$ is selected to be 0.004 and the corresponding number of nodesize is 6.
+
+### 3.2.2 Model Fitting and Prediction
+
+The tree is shown in Figure 1.
+
+![Classification Tree](C:/Users/guoshuhui/Desktop/OA/Rplot.jpg)
+
+Based on the above plot, we could see:
+
+1. At the top node of the tree, for the variable \textbf{nr.employed}, 88% of the observations are higher than 5088, while 12% are lower than 5088.
+
+2. Out of the observations with \textbf{nr.employed} higher than 5088, 93% did not subscribe the deposit and 7% subscribed the deposit.
+
+3. For the observations with \textbf{nr.employed} lower than 5088, the next stop is to see how many of them with \textbf{pdays} higher than 16. 9% of the observations was last contacted in more than 16 days ago. 3% are less than 16 days and in this group, 28% did not subscribe the deposit while 72% did.
+
+4. For the observations with \textbf{pdays} higher than 16, the next stop is to see whether the contact was by telephone. 1% of the observations was contacted by telephone and in this group, 78% did not subscribe the deposit while 22% did.
+
+5. For the observations not contacted by telephone, the next stop is to see whether the variable \textbf{emp.var.rate} is lower than -2.4. There are 5% of the observations with \textbf{emp.var.rate} lower than -2.4. Out of these observations, 65% did not subscribe the deposit while 35% did.
+
+6. For the observations with \textbf{emp.var.rate} higher than -2.4, the next stop is to see whether the outcome of the previous marketing campaign is failure. Out of the 1% of the observations whose previous outcome is failure, 66% did not subscribe the deposit while 34% did. Out of the 1% of the observations whose previous outcome is not failure, 42% did not subscribe the deposit while 58% did.
+
+Use the trained model to make prediction in testing dataset. The confusion matrix is:
+
+```{r, echo = F, cache = T}
+bank.prune <- prune(bank.rpart, cp = bank.rpart$cptable[3,1])
+predictions <- predict(bank.prune, test, type = "class")
+# confusion matrix
+table <- table(pred = predictions, true = test$y)
+accuracy <- (table[1,1]+table[2,2])/(table[1,1]+table[1,2]+table[2,1]+table[2,2])
+table
+```
+
+The total classification accuracy of testing data is $`r round(accuracy,3)`$.
+
+## 3.3 Gradient Boosted Machine
+
+```{r, echo = F}
+rm(list=ls())
+```
+
+```{r, echo = F, include = F}
+library(caret)
+library(gbm)
+library(dplyr)
+library(ROCR)
+```
+
+Gradient boosted machine is a machine learning technique used for regression and classification. In this part, gradient boosted machine will be used to predict if the client will subscribe a deposit.
+
+### 3.3.1 Model Fitting
+
+Fit the gradient boosted model with 1000 trees and the shrinkage parameter 0.01. Set the threshold of outcome as 0.5. The prediction probabilities higher than 0.5 should be classified to *Yes*, and the probabilities lower than 0.5 should be classified to *No*.
+
+The confusion matrix of the training dataset is constructed as below:
+
+```{r, echo = F, cache = T}
+bank <- read.csv2("C:/Users/guoshuhui/Desktop/OA/bank-additional/bank-additional-full.csv", header=TRUE, sep=";")
+bank <- bank[,-11]
+# convert the change the factor values to numeric
+bank$age <- as.numeric(bank$age)
+# bank$duration <- as.numeric(bank$duration)
+bank$campaign <- as.numeric(bank$campaign)
+bank$pdays <- as.numeric(bank$pdays)
+bank$previous <- as.numeric(bank$previous)
+bank$emp.var.rate <- as.numeric(as.character(bank$emp.var.rate))
+bank$cons.price.idx <- as.numeric(as.character(bank$cons.price.idx))
+bank$cons.conf.idx <- as.numeric(as.character(bank$cons.conf.idx))
+bank$euribor3m <- as.numeric(as.character(bank$euribor3m))
+bank$nr.employed <- round(as.numeric(as.character(bank$nr.employed)))
+# split training and testing data
+#set random seed for the results to be reproducible
+set.seed(123) 
+# sample 75% of observations as the training set
+trainX <- createDataPartition(bank$y, p=0.75, list=FALSE) 
+train <- bank[trainX,]
+# the rest 25% as the test set
+test <- bank[-trainX,]
+ytrain <- as.numeric(as.character(factor(train$y, levels = c("no", "yes"), labels = c("0", "1"))))
+Xtrain <- train[,-20]
+ytest <- as.numeric(as.character(factor(test$y, levels = c("no", "yes"), labels = c("0", "1"))))
+Xtest <- test[,-20]
+
+bank_new <- as.data.frame(cbind(Xtrain, ytrain))
+gbm.fit = gbm(ytrain~., data = bank_new, 
+              distribution="bernoulli", n.trees=1000, shrinkage=0.01, bag.fraction=0.8, cv.folds = 10)
+usetree = gbm.perf(gbm.fit, plot.it = FALSE, method="cv")
+pre1 <- predict(gbm.fit, Xtrain, n.trees = usetree)
+pre <- predict(gbm.fit, Xtest, n.trees = usetree)
+prob1 = 1/(1+exp(-2*pre1))
+prob = 1/(1+exp(-2*pre))
+
+train = train %>%
+  mutate(predy = as.factor(ifelse(prob1 < 0.5, "no", "yes")))
+# confusion matrix
+a = table(pred = train$predy, true = train$y)
+a1 <- a[1,1]
+a2 <- a[1,2]
+a3 <- a[2,1]
+a4 <- a[2,2]
+atotal <- (a1+a4)/30891
+atrueno <- a1/(a1+a3)
+atrueyes <- a4/(a2+a4)
+a
+```
+
+Based on this result, out of 30891 observations in total, the model classifies $`r a1+a4`$ correctly, which is $`r round(atotal,3)`$. The total accuracy is pretty high. Nevertheless, the classification accuracy of each outcome is quite different. Out of the $`r a1+a3`$ observations which did not subscribe to a deposit, the model classifies $`r a1`$ correctly, which is $`r round(atrueno,3)`$. On the other hand, out of the $`r a2+a4`$ observations which subscribed to a deposit, the model classifies $`r a4`$ correctly, which is only $`r round(atrueyes,3)`$.
+
+Use the trained model to make prediction in testing dataset. The confusion matrix of the testing dataset is:
+
+```{r, echo = F, cache = T}
+test = test %>%
+  mutate(predy = as.factor(ifelse(prob < 0.5, "no", "yes")))
+# confusion matrix
+b = table(pred = test$predy, true = test$y)
+b1 <- b[1,1]
+b2 <- b[1,2]
+b3 <- b[2,1]
+b4 <- b[2,2]
+btotal <- (b1+b4)/10297
+btrueno <- b1/(b1+b3)
+btrueyes <- b4/(b2+b4)
+b
+```
+
+Based on this result, the total classification accuracy is $`r round(btotal,3)`$. But the unbalanced issue also exists. The classification accuracy of the observations which did not actually subscribe
+to a deposit is $`r round(btrueno,3)`$. While the classification accuracy of the observations which actually subscribed to a deposit is $`r round(btrueyes,3)`$.
+
+Therefore, the ROC curve should be used to balance the prediction accuracy.
+
+### 3.3.2 Model Improvement
+
+In this part, the unbalanced issue will be addressed by checking ROC curve and finding the best threshold to do classification.
+
+The ROC curve of training dataset is plotted as below:
+
+```{r, echo = F, fig.align = 'center', fig.height=3.8, fig.width=5.0}
+pred = prediction(prob1, train$y)
+#TPR on the y axis and FPR on the x axis
+perf = performance(pred, measure="tpr", x.measure="fpr")
+plot(perf, col=2, lwd=3, main="ROC curve")
+abline(0,1)
+auc <- performance(pred, "auc")@y.values
+```
+
+In this model, AUC is $`r round(as.numeric(auc),3)`$, which indicates that the model has a good performance. Nevertheless, based on the ROC curve, the performance of the model could be better.
+
+To make the classification results better, the false positive rate(fpr) and false negative rate(fnr) should be as small as possible. This could be achieved by changing the threshold, which is currently 0.5. The changes of false positive rate and false negative rate with the changing of threshold is plotted as below:
+
+```{r, echo = F, fig.align = 'center', fig.height=3.8, fig.width=5.0}
+# FPR
+fpr = performance(pred, "fpr")@y.values[[1]]
+cutoff = performance(pred, "fpr")@x.values[[1]]
+# FNR
+fnr = performance(pred,"fnr")@y.values[[1]]
+
+#plot the FPR and FNR versus threshold values
+matplot(cutoff, cbind(fpr,fnr), type="l",lwd=2, xlab="Threshold",ylab="Error Rate")
+legend("right", 0.4, legend=c("False Positive Rate","False Negative Rate"),
+       col=c(1,2), lty=c(1,2))
+```
+
+To ensure the false positive rate(fpr) and false negative rate(fnr) are as small as possible, there should be a threshold in which the distance between (fpr,fnr) and (0,0) is the smallest, which is measured by the Euclidean distance.
+
+Finally the smallest distance is selected to be 0.388. The corresponding threshold is 0.009. The results are shown in the plot:
+
+```{r, echo = F, fig.align = 'center', fig.height=3.8, fig.width=5.0}
+# calculate the euclidean distance between (fpr,fnr) and (0,0)
+rate = as.data.frame(cbind(Cutoff=cutoff, FPR=fpr, FNR=fnr))
+rate$distance = sqrt((rate[,2])^2+(rate[,3])^2)
+# select the probability threshold with the smallest euclidean distance
+index = which.min(rate$distance)
+best = rate$Cutoff[index]
+
+matplot(cutoff, cbind(fpr,fnr), type="l",lwd=2, xlab="Threshold",ylab="Error Rate")
+legend("right", 0.4, legend=c("False Positive Rate","False Negative Rate"),
+       col=c(1,2), lty=c(1,2))
+abline(v=best, col=3, lty=3, lwd=3)
+```
+
+Based on the above inference, the prediction probabilities higher than 0.009 should be classified to *Yes*, and the probabilities lower than 0.009 should be classified to *No*. 
+
+The new confusion matrix of the training dataset is constructed as below:
+
+```{r, echo = F, cache = T}
+#calculate subscription probabilities again with threshold value
+new.train = train %>%
+  mutate(predy = as.factor(ifelse(prob1 <= best, "no", "yes")))
+# confusion matrix
+c = table(pred = new.train$predy, true = train$y)
+c1 <- c[1,1]
+c2 <- c[1,2]
+c3 <- c[2,1]
+c4 <- c[2,2]
+ctotal <- (c1+c4)/30891
+ctrueno <- c1/(c1+c3)
+ctrueyes <- c4/(c2+c4)
+c
+```
+
+Out of 30891 observations in total, the model classifies $`r c1+c4`$ correctly, which is $`r round(ctotal,3)`$. This result is lower than before, but the classification accuracy of each outcome should also be checked. Out of the $`r c1+c3`$ observations which did not subscribe to a deposit, the model classifies $`r c1`$ correctly, which is $`r round(ctrueno,3)`$. On the other hand, out of the $`r c2+c4`$ observations which subscribed to a deposit, the model classifies $`r c4`$ correctly, which is $`r round(ctrueyes,3)`$. The true positive rate is increased a lot and the overall model is much more accurate than before.
+
+Use the trained model to make prediction in testing dataset. The confusion matrix of the testing dataset is:
+
+```{r, echo = F, cache = T}
+new.test = test %>%
+  mutate(predy = as.factor(ifelse(prob <= best, "no", "yes")))
+d = table(pred = new.test$predy, true = test$y)
+d1 <- d[1,1]
+d2 <- d[1,2]
+d3 <- d[2,1]
+d4 <- d[2,2]
+dtotal <- (d1+d4)/10297
+dtrueno <- d1/(d1+d3)
+dtrueyes <- d4/(d2+d4)
+d
+```
+
+The total classification accuracy of testing data is $`r round(dtotal,3)`$. The classification accuracy of the observations which did not actually subscribe to a deposit is $`r round(dtrueno,3)`$. While the classification accuracy of the observations which actually subscribed to a deposit is $`r round(dtrueyes,3)`$.
+
+# 4 Model Comparison and Conclusion
+
+So far, three models have been fitted to make predictions. The performance measurements for the three models is shown as below:
+
+|measurements|Logistic Regression|Classification Tree|Gradient Boosted Machine|
+|------------|-------------------|-------------------|------------------------|
+|test accuracy|0.757|0.898|$`r round(dtotal,3)`$|
+|AUC|0.789|0.622|$`r round(as.numeric(auc),3)`$|
+
+Based on these results, classification tree ranks first in test accuracy. Nevertheless, this model causes unbalanced issue and its AUC ranks the last. Thus clsassification tree is not the best model. Gradient boosted machine has higher accuracy than Logistic regression and ranks first in AUC. Therefore, gradient boosted machine is the best model.
+
+# References
+
+S. Moro, P. Cortez and P. Rita. A Data-Driven Approach to Predict the Success of Bank Telemarketing. Decision Support Systems, Elsevier, 62:22-31, June 2014
+
+S. Moro, R. Laureano and P. Cortez. Using Data Mining for Bank Direct Marketing: An Application of the CRISP-DM Methodology. In P. Novais et al. (Eds.), Proceedings of the European Simulation and Modelling Conference - ESM'2011, pp. 117-121, Guimaraes, Portugal, October, 2011. EUROSIS.
+
+Reddy, A. (2016, June 19). Building Machine Learning Models. Retrieved from
+https://rpubs.com/arjunreddyt/190610
+
+Widjaja, J. (2017, May 24). Classification to Predict Bank Marketing Success. Retrieved from https://github.com/jesswidjaja/DataMiningProject
+
+Sandhu, S. (2017, April 25). Rpart, cross validation. Retrieved from https://stats.stackexchange.com/questions/275652/rpart-cross-validation
+
+Zhang, C. (2016, December 23). Machine Learning on Bank Marketing Data. Retrieved from https://nycdatascience.com/blog/student-works/machine-learning/machine-learning-retail-bank-marketing-data/
+
